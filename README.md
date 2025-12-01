@@ -35,7 +35,8 @@ control files in this folder and its contents, with your assistance.
 
 To launch the app, click the green "Run App" button on the upper right of the app file.
 
-For more details and instructions on creating the control file, visit the (help page)[https://drcytometer.github.io/AutoSpectral/articles/Control_File_example.html] on AutoSpectral.
+For more details and instructions on creating the control file, visit the help page on AutoSpectral:
+https://drcytometer.github.io/AutoSpectral/articles/Control_File_example.html 
 
 
 ## Requirements
