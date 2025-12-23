@@ -160,11 +160,7 @@ ui <- fluidPage(
       helpText("Edit cells directly. Right-click to remove or add rows."),
       rHandsontableOutput("controls_table", height = "500px"),
       fluidRow(
-        column(3, actionButton("move_up", "Move up")),
-        column(3, actionButton("move_down", "Move down")),
-        column(3, actionButton("fill_control_type", "Fill empty control.type"))
-      ),
-      fluidRow(
+        column(3, actionButton("fill_control_type", "Fill empty control.type")),
         column(6, actionButton("fill_universal_negative", "Fill all universal.negative"))
       ),
       hr(),
@@ -177,14 +173,68 @@ ui <- fluidPage(
 
 # ---- Server ----
 server <- function(input, output, session) {
+  # validation helper function: allow compatibility with AutoSpectral v0.8.7 and earlier
+  normalize_check_result <- function(x) {
+    
+    # Case 1: NULL → empty validation table
+    if (is.null(x)) {
+      return(data.frame(
+        severity = character(0),
+        rule     = character(0),
+        message  = character(0),
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    # Case 2: already a data.frame
+    if (is.data.frame(x)) {
+      required <- c("severity", "rule", "message")
+      missing  <- setdiff(required, colnames(x))
+      
+      if (length(missing) > 0) {
+        for (m in missing) {
+          x[[m]] <- NA_character_
+        }
+      }
+      
+      return(x[, required, drop = FALSE])
+    }
+    
+    # Case 3: legacy list return (pre-refactor)
+    if (is.list(x)) {
+      return(data.frame(
+        severity = "error",
+        rule     = "legacy_return",
+        message  = "check.control.file() returned legacy list format",
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    # Case 4: anything else (should never happen)
+    data.frame(
+      severity = "fatal",
+      rule     = "unknown_return_type",
+      message  = paste("Unexpected return type:", class(x)[1]),
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  # reactive
   roots <- c(WorkingDir = getwd(), Home = normalizePath("~"))
   shinyDirChoose(input, "control_dir", roots = roots, session = session)
-  current_dir <- reactiveVal(NULL)
+  fcs_dir  <- reactiveVal(NULL)
+  save_dir <- reactiveVal(NULL)
   observeEvent(input$control_dir, {
     dirinfo <- parseDirPath(roots, input$control_dir)
-    if (length(dirinfo) > 0) current_dir(dirinfo)
+    if (length(dirinfo) > 0) {
+      fcs_dir(dirinfo)
+      save_dir(getwd())  # preserve legacy behavior: default save = FCS dir
+    }
   })
-  output$selected_dir <- renderText({ d <- current_dir(); if (is.null(d)) "No directory selected" else d })
+  output$selected_dir <- renderText({
+    d <- fcs_dir();
+    if (is.null(d)) "No directory selected" else d
+    })
 
   asp <- reactiveVal(AutoSpectral::get.autospectral.param(map[[names(map)[1]]]))
   observeEvent(input$cytometer, {
@@ -194,11 +244,11 @@ server <- function(input, output, session) {
   })
 
   rv <- reactiveValues(tbl = NULL, detectors = character(0), unstained_choices = character(0))
-
+  
   # load controls
   observeEvent(input$load_controls, {
-    req(current_dir(), asp())
-    res <- create.control.df(current_dir(), asp())
+    req(fcs_dir(), asp())
+    res <- create.control.df(fcs_dir(), asp())
     df <- res$df
     detectors <- res$detectors
     if (!"is.viability" %in% colnames(df)) df$is.viability <- ""
@@ -265,28 +315,6 @@ server <- function(input, output, session) {
       hot_col("is_unstained", type="checkbox")
   })
 
-  # move up/down
-  observeEvent(input$move_up, {
-    req(rv$tbl)
-    sel <- input$controls_table_select$select$r
-    if(is.null(sel) || length(sel)==0){showNotification("No row selected", type="warning"); return()}
-    i <- as.integer(sel)
-    if(i<=1){showNotification("Cannot move first row up", type="warning"); return()}
-    tbl <- rv$tbl
-    tbl[c(i-1,i),] <- tbl[c(i,i-1),]
-    rv$tbl <- tbl
-  })
-  observeEvent(input$move_down, {
-    req(rv$tbl)
-    sel <- input$controls_table_select$select$r
-    if(is.null(sel) || length(sel)==0){showNotification("No row selected", type="warning"); return()}
-    i <- as.integer(sel)
-    if(i>=nrow(rv$tbl)){showNotification("Cannot move last row down", type="warning"); return()}
-    tbl <- rv$tbl
-    tbl[c(i,i+1),] <- tbl[c(i+1,i),]
-    rv$tbl <- tbl
-  })
-
   # fill empty control.type
   observeEvent(input$fill_control_type, {
     showModal(modalDialog(
@@ -341,60 +369,84 @@ server <- function(input, output, session) {
   output$check_output <- renderText({"No checks performed yet."})
   observeEvent(input$save_controls, {
     req(rv$tbl)
-    req(current_dir())
+    req(save_dir())
+    req(fcs_dir())
     df <- rv$tbl
 
     # write temp csv
     tmpfile <- tempfile(fileext = ".csv")
     write.csv(df[, setdiff(colnames(df), "is_unstained")], tmpfile, row.names = FALSE, na = "")
 
-    # Call original check.control.file
-    check_res <- tryCatch({
-      # capture messages/warnings/errors
-      res <- withCallingHandlers({
-        out <- suppressMessages(AutoSpectral::check.control.file(
-          control.dir = current_dir(),
+    # Call check.control.file
+    raw_check_res <- tryCatch({
+      suppressMessages(
+        AutoSpectral::check.control.file(
           control.def.file = tmpfile,
+          control.dir = fcs_dir(),
           asp = asp(),
-          strict = FALSE))
-        out
-      },
-      warning = function(w) {
-        # forward warning messages into output
-        # store them as attributes to res later if needed
-        invokeRestart("muffleWarning")
-      })
-      res
+          strict = FALSE
+        )
+      )
     }, error = function(e) {
-      list(Errors = list(error = e$message), Warnings = list())
+      data.frame(
+        severity = "fatal",
+        rule     = "execution_error",
+        message  = e$message,
+        stringsAsFactors = FALSE
+      )
     })
-
+    
+    check_res <- normalize_check_result(raw_check_res)
+    
+    # split errors by severity
+    errors   <- subset(check_res, severity == "error")
+    warnings <- subset(check_res, severity == "warning")
+    fatals   <- subset(check_res, severity == "fatal")
+    
     # format and show check results
     formatted <- capture.output({
-      if (is.list(check_res) && !identical(check_res$Errors, "No Errors Found")) {
+      
+      if (nrow(fatals) > 0) {
+        cat("Fatal error:\n")
+        print(fatals$message)
+        return()
+      }
+      
+      if (nrow(errors) == 0 && nrow(warnings) == 0) {
+        cat("No validation issues found.")
+        return()
+      }
+      
+      if (nrow(errors) > 0) {
         cat("Errors:\n")
-        print(check_res$Errors)
-        cat("\nWarnings:\n")
-        print(check_res$Warnings)
-      } else if (is.list(check_res) && identical(check_res$Errors, "No Errors Found")) {
-        cat("No critical errors found. Warnings:\n")
-        print(check_res$Warnings)
-      } else {
-        print(check_res)
+        print(unique(errors$message))
+        cat("\n")
+      }
+      
+      if (nrow(warnings) > 0) {
+        cat("Warnings:\n")
+        print(unique(warnings$message))
       }
     })
     output$check_output <- renderText(paste(formatted, collapse = "\n"))
 
     # if there are critical errors then do not save
-    if (is.list(check_res) && !identical(check_res$Errors, "No Errors Found")) {
-      showNotification("Critical errors detected — file not saved. See check results.", type = "error")
+    has_fatal  <- any(check_res$severity == "fatal")
+    has_errors <- any(check_res$severity == "error")
+    
+    if (has_fatal || has_errors) {
+      showNotification(
+        "Critical errors detected — file not saved. See check results.",
+        type = "error"
+      )
       return()
     }
 
     # otherwise save to the chosen folder
     outname <- input$output_filename
     if (is.null(outname) || outname == "") outname <- "fcs_control_file.csv"
-    outpath <- file.path(current_dir(), outname)
+    req(save_dir())
+    outpath <- file.path(save_dir(), outname)
 
     # if exists, generate unique filename
     base <- tools::file_path_sans_ext(outpath)
