@@ -9,7 +9,7 @@ unstained samples, editing metadata, and exporting a finalized control file.
 
 - Select cytometer configuration
 - Load control files from a directory
-- Interactive rHandsontable control editor
+- Interactive table editor
 - Mark/unmark unstained controls for use as universal negatives
 - Reorder controls (helpful for plotting fluorophore spectra later)
 - Auto-fill functions
@@ -22,7 +22,7 @@ Download the `app.r` file.
 
 While you can manually install the dependencies, this occurs automatically when you first run the app.
 
-You will need AutoSpectral version 0.8.7 or higher. Just re-install it if you aren't sure.
+You will need AutoSpectral version 1.5.4 or higher. Just re-install it if you aren't sure.
 ```r
 devtools::install_github("DrCytometer/AutoSpectral")
 ```
@@ -31,7 +31,7 @@ devtools::install_github("DrCytometer/AutoSpectral")
 ## Using the shiny helper
 
 Place a copy of the app in the folder where you want to work. The app will look for your single-stained 
-control files in this folder and its contents, with your assistance.
+control files in this folder, with your assistance.
 
 To launch the app, click the green "Run App" button on the upper right of the app file.
 
@@ -43,7 +43,7 @@ https://drcytometer.github.io/AutoSpectral/articles/Control_File_example.html
 
 R >= 4.0
 Shiny >= 1.7
-AutoSpectral >= 0.8.7
+AutoSpectral >= 1.5.4
 
 
 ## Issues
