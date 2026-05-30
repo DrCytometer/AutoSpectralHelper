@@ -13,18 +13,23 @@ unstained samples, editing metadata, and exporting a finalized control file.
 - Mark/unmark unstained controls for use as universal negatives
 - Reorder controls (helpful for plotting fluorophore spectra later)
 - Auto-fill functions
-- Export validated control files
+- Export validated control files to the directory of your choosing
 
 
 ## Installation
 
 Download the `app.r` file.
+Alternatively, run it directly from GitHub:
+```r
+shiny::runGitHub("AutoSpectralHelper", "DrCytometer")
+```
 
 While you can manually install the dependencies, this occurs automatically when you first run the app.
 
 You will need AutoSpectral version 1.5.4 or higher. Just re-install it if you aren't sure.
+Install `pak` if you don't have it.
 ```r
-devtools::install_github("DrCytometer/AutoSpectral")
+pak::pak("DrCytometer/AutoSpectral")
 ```
 
 
@@ -41,9 +46,11 @@ https://drcytometer.github.io/AutoSpectral/articles/Control_File_example.html
 
 ## Requirements
 
-R >= 4.0
-Shiny >= 1.7
+R >= 4.1
 AutoSpectral >= 1.5.4
+For integration with the newest AutoSpectral pipeline, upgrade AutoSpectral to
+at least version 1.5.8. Otherwise you will see a "legacy mode" warning.
+All other requirements are automatically installed on first launch.
 
 
 ## Issues
