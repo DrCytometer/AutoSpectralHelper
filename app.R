@@ -30,6 +30,14 @@ map <- list(
   "Symphony A5SE"   = "a5se"
 )
 
+# ---- Version check ----
+.AS_VERSION <- tryCatch(
+  package_version( utils::packageVersion( "AutoSpectral" ) ),
+  error = function( e ) package_version( "0.0.0" )
+)
+.LEGACY_REQUIRED_BELOW <- package_version( "1.5.8" )
+.legacy_forced <- .AS_VERSION < .LEGACY_REQUIRED_BELOW
+
 # ---- Filesystem roots ----
 .build_roots <- function() {
   base <- c("Working dir" = .launch_wd, "Home" = normalizePath("~"))
@@ -389,6 +397,9 @@ ui <- fluidPage(
       .modal-title   { font-family: 'DM Mono', monospace; font-size: 15px; }
       .shiny-notification { font-family: 'DM Sans', sans-serif !important;
         border-radius: 8px !important; font-size: 13px !important; }
+      .as-version-warning { background: #b94a00; color: #fff; padding: 10px 32px;
+        font-size: 12.5px; font-family: 'DM Sans', sans-serif;
+        border-bottom: 2px solid #e06820; line-height: 1.5; }
     "))
   ),
 
@@ -399,6 +410,19 @@ ui <- fluidPage(
       h1("AutoSpectral"),
       span(class = "as-subtitle", "Control File Builder")
   ),
+
+  # Shown only when an old package version is detected
+  if ( .legacy_forced ) {
+    div(class  = "as-version-warning",
+        tags$b("\u26A0 AutoSpectral ", as.character( .AS_VERSION ), " detected."),
+        " Version 1.5.8 or later is required for the new automated pipeline.",
+        " Legacy mode has been enabled automatically.",
+        tags$a( "Upgrade on GitHub",
+                href   = "https://github.com/DrCytometer/AutoSpectral",
+                target = "_blank",
+                style  = "color:#fff; text-decoration:underline; margin-left:8px;" )
+    )
+  },
 
   div(class = "as-outer",
 
@@ -411,6 +435,15 @@ ui <- fluidPage(
           div(class = "dir-display", textOutput("selected_dir")),
           actionButton("load_controls", "Load controls", class = "btn-as-primary"),
           hr(class = "as-hr"),
+          div(class = "as-section-label", "Mode"),
+          checkboxInput("legacy_mode", "Legacy mode (gating)", value = .legacy_forced),
+          div(style = "font-size:10.5px; color:#4a6278; margin-top:2px; line-height:1.4;",
+              if ( .legacy_forced )
+                tags$span(style = "color:#e06820;",
+                          "\u26A0 Locked: upgrade AutoSpectral to unlock")
+              else
+                "Enable for use with define.flow.control"
+          ),
           div(class = "as-section-label", "Export"),
           textInput("output_filename", label = "Output filename", value = "fcs_control_file.csv"),
           selectInput("save_location", "Save to",
@@ -425,6 +458,7 @@ ui <- fluidPage(
                   tags$li("Select one or more rows to open the editor."),
                   tags$li("When multiple rows are selected, fields that differ are greyed and inactive. Tick the corresponding overwrite checkbox to activate them."),
                   tags$li("Free-text cells (fluorophore, marker, gate.name) can also be double-clicked to edit inline."),
+                  tags$li(HTML("The <b>channel</b> (peak detector) column is optional in automated mode — the pipeline derives it from the data. It is required in legacy mode.")),
                   tags$li("Save — validation runs before writing.")
           )
       ),
@@ -441,7 +475,10 @@ ui <- fluidPage(
                   actionButton("delete_row",              "Delete selected",     class = "btn-tool-danger"),
                   actionButton("fill_control_type",       "Fill control.type",   class = "btn-tool"),
                   actionButton("fill_universal_negative", "Fill universal.neg.", class = "btn-tool"),
-                  actionButton("fill_gate_names",         "Auto gate names",     class = "btn-tool"),
+                  conditionalPanel(
+                    condition = "input.legacy_mode",
+                    actionButton("fill_gate_names", "Auto gate names", class = "btn-tool")
+                  ),
                   actionButton("clear_table",             "Clear all",           class = "btn-tool-danger")
               ),
 
@@ -461,34 +498,43 @@ ui <- fluidPage(
                                         choices = c("", "cells", "beads"), width = "100%")
                         ),
                         div(class = "editor-field", id = "fld_channel",
-                            tags$label("channel"),
-                            selectInput("edit_channel", label = NULL, choices = c(""), width = "100%")
+                            tags$label(
+                              HTML('channel <span style="font-weight:400;color:#9ab8c8;">(optional in automated mode)</span>')
+                            ),
+                            selectInput("edit_channel", label = NULL,
+                                        choices = c("(unknown / leave blank)" = "", ""), width = "100%")
                         ),
                         div(class = "editor-field", id = "fld_universal_neg",
                             tags$label("universal.negative"),
                             selectInput("edit_universal_neg", label = NULL, choices = c(""), width = "100%")
                         ),
-                        div(class = "editor-field", id = "fld_gate_name",
-                            tags$label("gate.name"),
-                            selectizeInput("edit_gate_name", label = NULL, choices = c(""), width = "100%",
-                                           options = list(create = TRUE, placeholder = "Select or type..."))
+                        conditionalPanel(
+                          condition = "input.legacy.mode",
+                          div(class = "editor-field", id = "fld_gate_name",
+                              tags$label("gate.name"),
+                              selectizeInput("edit_gate_name", label = NULL, choices = c(""), width = "100%",
+                                             options = list(create = TRUE, placeholder = "Select or type..."))
+                          )
                         ),
                         div(class = "editor-field", id = "fld_is_unstained",
                             tags$label("Is unstained control"),
                             checkboxInput("edit_is_unstained", label = NULL, value = FALSE)
                         ),
-                        div(class = "editor-field", id = "fld_large_gate",
-                            tags$label("large.gate"),
-                            checkboxInput("edit_large_gate", label = NULL, value = FALSE)
+                        conditionalPanel(
+                          condition = "input.legacy.mode",
+                          div(class = "editor-field", id = "fld_large_gate",
+                              tags$label("large.gate"),
+                              checkboxInput("edit_large_gate", label = NULL, value = FALSE)
+                          ),
+                          div(class = "editor-field", id = "fld_is_viability",
+                              tags$label("is.viability"),
+                              checkboxInput("edit_is_viability", label = NULL, value = FALSE)
+                          ),
+                          div(class = "editor-field", id = "fld_gate_define",
+                              tags$label("gate.define"),
+                              checkboxInput("edit_gate_define", label = NULL, value = TRUE)
+                          )
                         ),
-                        div(class = "editor-field", id = "fld_is_viability",
-                            tags$label("is.viability"),
-                            checkboxInput("edit_is_viability", label = NULL, value = FALSE)
-                        ),
-                        div(class = "editor-field", id = "fld_gate_define",
-                            tags$label("gate.define"),
-                            checkboxInput("edit_gate_define", label = NULL, value = TRUE)
-                        )
                     ),
 
                     # Overwrite row — single horizontal line, columns aligned to grid above
@@ -505,21 +551,27 @@ ui <- fluidPage(
                           div(class = "overwrite-item",
                               checkboxInput("ow_universal_neg", NULL, value = FALSE),
                               "universal.neg"),
-                          div(class = "overwrite-item",
-                              checkboxInput("ow_gate_name",     NULL, value = FALSE),
-                              "gate.name"),
+                          conditionalPanel(
+                            condition = "input.legacy.mode",
+                            div(class = "overwrite-item",
+                                checkboxInput("ow_gate_name",     NULL, value = FALSE),
+                                "gate.name")
+                          ),
                           div(class = "overwrite-item",
                               checkboxInput("ow_is_unstained",  NULL, value = FALSE),
                               "unstained"),
-                          div(class = "overwrite-item",
-                              checkboxInput("ow_large_gate",    NULL, value = FALSE),
-                              "large.gate"),
-                          div(class = "overwrite-item",
-                              checkboxInput("ow_is_viability",  NULL, value = FALSE),
-                              "viability"),
-                          div(class = "overwrite-item",
-                              checkboxInput("ow_gate_define",   NULL, value = FALSE),
-                              "gate.define")
+                          conditionalPanel(
+                            condition = "input.legacy.mode",
+                            div(class = "overwrite-item",
+                                checkboxInput("ow_large_gate",    NULL, value = FALSE),
+                                "large.gate"),
+                            div(class = "overwrite-item",
+                                checkboxInput("ow_is_viability",  NULL, value = FALSE),
+                                "viability"),
+                            div(class = "overwrite-item",
+                                checkboxInput("ow_gate_define",   NULL, value = FALSE),
+                                "gate.define")
+                          )
                       )
                     ),
 
@@ -579,6 +631,15 @@ server <- function(input, output, session) {
   })
 
   rv <- reactiveValues(tbl = NULL, detectors = character(0))
+
+  # Lock legacy_mode checkbox when the installed version requires it
+  if ( .legacy_forced ) {
+    observe({
+      if ( !isTRUE( input$legacy_mode ) )
+        updateCheckboxInput( session, "legacy_mode", value = TRUE )
+      shinyjs::disable( "legacy_mode" )
+    })
+  }
 
   # ---- Load controls ----
   observeEvent(input$load_controls, {
@@ -679,7 +740,9 @@ server <- function(input, output, session) {
     updateSelectInput(session, "edit_control_type",
                       selected = if (is.na(df$control.type[r])) "" else df$control.type[r])
     updateSelectInput(session, "edit_channel",
-                      selected = if (is.na(df$channel[r])) "" else df$channel[r])
+                      choices  = c("(unknown / leave blank)" = "", rv$detectors),
+                      selected = if (is.na(df$channel[r]) || df$channel[r] == "") ""
+                      else df$channel[r])
 
     ct <- df$control.type[r]
     un_choices <- c("",
@@ -1009,11 +1072,19 @@ server <- function(input, output, session) {
     tmpfile <- tempfile(fileext = ".csv")
     write.csv(df, tmpfile, row.names = FALSE, na = "")
 
+    check_args <- list(
+      control.def.file = tmpfile,
+      control.dir      = fcs_dir(),
+      asp              = asp(),
+      strict           = FALSE
+    )
+    # Only pass legacy= if the installed version supports it
+    if ( !.legacy_forced )
+      check_args$legacy <- isTRUE( input$legacy_mode )
+
     raw_res <- tryCatch(
       suppressMessages(suppressWarnings(
-        AutoSpectral::check.control.file(
-          control.def.file = tmpfile, control.dir = fcs_dir(),
-          asp = asp(), strict = FALSE))),
+        do.call( AutoSpectral::check.control.file, check_args ))),
       error = function(e)
         data.frame(severity = "fatal", rule = "execution_error",
                    message = e$message, stringsAsFactors = FALSE))
